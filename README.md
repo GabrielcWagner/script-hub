@@ -41,9 +41,7 @@ local MenuTab = Window:CreateTab("Menu🎮")
 local JogadorTab = Window:CreateTab("Jogador👩‍💻")
 
 local godModeConnection = nil
-local godModeHealthConnection = nil
-local godModeStateConnection = nil
-local originalMaxHealth = 100
+local currentGodMode = false
 
 local Toggle = JogadorTab:CreateToggle({
     Name = "God Mode",
@@ -51,153 +49,37 @@ local Toggle = JogadorTab:CreateToggle({
     Flag = "GodModeToggle",
     Callback = function(Value)
         local player = game.Players.LocalPlayer
+        currentGodMode = Value
 
-        -- Função para limpar conexões
-        local function limparConexoes()
-            if godModeConnection then
-                godModeConnection:Disconnect()
-                godModeConnection = nil
-            end
-            if godModeHealthConnection then
-                godModeHealthConnection:Disconnect()
-                godModeHealthConnection = nil
-            end
-            if godModeStateConnection then
-                godModeStateConnection:Disconnect()
-                godModeStateConnection = nil
-            end
-        end
-
-        -- Função para ativar o God Mode
-        local function ativarGodMode()
-            if player and player.Character then
-                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    -- Salva a vida máxima original
-                    originalMaxHealth = humanoid.MaxHealth
-                    
-                    -- Define vida máxima e atual para um valor alto mas não infinito
-                    local godHealth = 999999
-                    humanoid.MaxHealth = godHealth
-                    humanoid.Health = godHealth
-
-                    -- Limpa conexões anteriores
-                    limparConexoes()
-
-                    -- Monitora mudanças de vida
-                    godModeHealthConnection = humanoid:GetPropertyChangedSignal("Health"):Connect(function()
-                        if humanoid.Health < godHealth then
-                            humanoid.Health = godHealth
-                        end
-                    end)
-
-                    -- Monitora mudanças de estado
-                    godModeStateConnection = humanoid.StateChanged:Connect(function(_, newState)
-                        if newState == Enum.HumanoidStateType.Dead then
-                            humanoid.Health = godHealth
-                            -- Tenta reabilitar o humanoid
-                            humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                        end
-                    end)
-
-                    -- Proteção adicional usando RunService
-                    godModeConnection = game:GetService("RunService").Heartbeat:Connect(function()
-                        if humanoid.Health < godHealth then
-                            humanoid.Health = godHealth
-                        end
-                        -- Impede estados de morte
-                        if humanoid:GetState() == Enum.HumanoidStateType.Dead then
-                            humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                        end
-                    end)
-                end
-            end
-        end
-
-        -- Função para desativar o God Mode
-        local function desativarGodMode()
-            limparConexoes()
-            
-            if player and player.Character then
-                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    humanoid.MaxHealth = originalMaxHealth
-                    if humanoid.Health > originalMaxHealth then
-                        humanoid.Health = originalMaxHealth
-                    end
-                end
-            end
-        end
-
-        -- Função para reaplicar God Mode após respawn
-        local function onCharacterAdded(character)
-            wait(1) -- Aguarda o character carregar completamente
-            if Value then -- Se o toggle ainda estiver ativo
-                ativarGodMode()
-            end
+        -- Limpa conexão anterior
+        if godModeConnection then
+            godModeConnection:Disconnect()
+            godModeConnection = nil
         end
 
         if Value then
-            ativarGodMode()
-            -- Conecta para reaplicar após respawn
-            if player.Character then
-                player.CharacterAdded:Connect(onCharacterAdded)
-            end
-        else
-            desativarGodMode()
+            -- Proteção contínua
+            godModeConnection = game:GetService("RunService").Heartbeat:Connect(function()
+                if player and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+                    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                    
+                    -- Define vida alta
+                    humanoid.MaxHealth = 10000
+                    humanoid.Health = 10000
+                    
+                    -- Impede morte
+                    if humanoid:GetState() == Enum.HumanoidStateType.Dead then
+                        humanoid.Health = 10000
+                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                end
+            end)
         end
     end,
 })
 
--- Kill Aura Toggle (Versão Melhorada)
+-- Kill Aura Toggle (Versão Simplificada)
 local killAuraMobsConnection = nil
-local mobsCache = {}
-
--- Função melhorada para detectar mobs hostis
-local function isHostil(entidade)
-    if not entidade or not entidade:FindFirstChild("Humanoid") then
-        return false
-    end
-    
-    -- Verifica se é um player
-    for _, player in pairs(game.Players:GetPlayers()) do
-        if player.Character == entidade then
-            return false
-        end
-    end
-    
-    -- Verifica se tem nome de mob comum
-    local mobNames = {"Zombie", "Skeleton", "Spider", "Creeper", "Mob", "Enemy", "Monster", "Beast"}
-    local name = entidade.Name:lower()
-    for _, mobName in pairs(mobNames) do
-        if name:find(mobName:lower()) then
-            return true
-        end
-    end
-    
-    -- Se não for player e tiver Humanoid, assume que é hostil
-    return true
-end
-
--- Função para aplicar dano
-local function applyDamage(humanoid, damage)
-    -- Tenta diferentes métodos de dano
-    if humanoid.TakeDamage then
-        humanoid:TakeDamage(damage)
-    else
-        humanoid.Health = math.max(humanoid.Health - damage, 0)
-    end
-end
-
--- Atualiza cache de mobs periodicamente
-local function updateMobsCache()
-    mobsCache = {}
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if isHostil(obj) and obj:FindFirstChild("HumanoidRootPart") then
-          table.insert(mobsCache, obj)
-        end
-    end
-end
 
 local ToggleKillAura = MenuTab:CreateToggle({
     Name = "Kill Aura",
@@ -207,41 +89,32 @@ local ToggleKillAura = MenuTab:CreateToggle({
         local player = game.Players.LocalPlayer
 
         if Value then
-            -- Desconecta conexão anterior se existir
             if killAuraMobsConnection then
                 killAuraMobsConnection:Disconnect()
-                killAuraMobsConnection = nil
             end
 
-            -- Atualiza cache inicial
-            updateMobsCache()
-            
-            local lastCacheUpdate = tick()
-            local damagePerSecond = 100 -- Dano por segundo
-            local range = 50 -- Alcance
-
-            killAuraMobsConnection = game:GetService("RunService").Heartbeat:Connect(function(dt)
+            killAuraMobsConnection = game:GetService("RunService").Heartbeat:Connect(function()
                 if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                     local playerPos = player.Character.HumanoidRootPart.Position
                     
-                    -- Atualiza cache a cada 0.5 segundos para melhor performance
-                    if tick() - lastCacheUpdate > 0.5 then
-                        updateMobsCache()
-                        lastCacheUpdate = tick()
-                    end
-
-                    -- Aplica dano nos mobs próximos
-                    for _, mob in pairs(mobsCache) do
-                        if mob and mob.Parent and mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChild("Humanoid") then
-                            local dist = (mob.HumanoidRootPart.Position - playerPos).Magnitude
-                            if dist <= range then
-                                local humanoid = mob.Humanoid
-                                if humanoid.Health > 0 then
-                                    local damage = damagePerSecond * dt
-                                    applyDamage(humanoid, damage)
-                                    
-                                    -- Debug: print para verificar se está funcionando
-                                    print("Aplicando dano:", damage, "em", mob.Name, "Distância:", dist)
+                    for _, obj in pairs(workspace:GetDescendants()) do
+                        if obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
+                            -- Verifica se não é um player
+                            local isPlayer = false
+                            for _, p in pairs(game.Players:GetPlayers()) do
+                                if p.Character == obj then
+                                    isPlayer = true
+                                    break
+                                end
+                            end
+                            
+                            if not isPlayer then
+                                local dist = (obj.HumanoidRootPart.Position - playerPos).Magnitude
+                                if dist <= 50 then
+                                    local humanoid = obj.Humanoid
+                                    if humanoid.Health > 0 then
+                                        humanoid.Health = 0
+                                    end
                                 end
                             end
                         end
@@ -253,7 +126,6 @@ local ToggleKillAura = MenuTab:CreateToggle({
                 killAuraMobsConnection:Disconnect()
                 killAuraMobsConnection = nil
             end
-            mobsCache = {}
         end
     end,
 })
